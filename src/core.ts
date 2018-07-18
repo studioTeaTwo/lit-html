@@ -470,8 +470,9 @@ export const noChange = {};
  */
 export {noChange as directiveValue};
 
-export const _isPrimitiveValue = (value: any) => (value === null ||
-    !(typeof value === 'object' || typeof value === 'function'));
+export const _isPrimitiveValue = (value: any) =>
+    (value === null ||
+     !(typeof value === 'object' || typeof value === 'function'));
 
 /**
  * The Part interface represents a dynamic part of a template instance rendered
@@ -479,7 +480,7 @@ export const _isPrimitiveValue = (value: any) => (value === null ||
  */
 export interface Part {
   _value: any;
-  
+
   setValue(value: any): void;
 
   commit(): void;
@@ -512,7 +513,8 @@ export class AttributeCommitter {
       const part = this.parts[i];
       if (part !== undefined) {
         const v = part._value;
-        if (v != null && (Array.isArray(v) || typeof v !== 'string' && v[Symbol.iterator])) {
+        if (v != null &&
+            (Array.isArray(v) || typeof v !== 'string' && v[Symbol.iterator])) {
           for (const t of v) {
             text += t;
           }
@@ -716,7 +718,6 @@ export class NodePart implements Part {
   commit() {
     // nothing for now...
   }
-
 }
 
 export type PartCallback =
@@ -724,17 +725,17 @@ export type PartCallback =
         Part[];
 
 export const defaultPartCallback =
-    (instance: TemplateInstance,
-     templatePart: TemplatePart,
-     node: Node): Part[] => {
-      if (templatePart.type === 'attribute') {
-        const comitter = new AttributeCommitter(node as Element, templatePart.name!, templatePart.strings!);
-        return comitter.parts;
-      } else if (templatePart.type === 'node') {
-        return [new NodePart(instance, node, node.nextSibling!)];
-      }
-      throw [new Error(`Unknown part type ${templatePart.type}`)];
-    };
+    (instance: TemplateInstance, templatePart: TemplatePart, node: Node):
+        Part[] => {
+          if (templatePart.type === 'attribute') {
+            const comitter = new AttributeCommitter(
+                node as Element, templatePart.name!, templatePart.strings!);
+            return comitter.parts;
+          } else if (templatePart.type === 'node') {
+            return [new NodePart(instance, node, node.nextSibling!)];
+          }
+          throw[new Error(`Unknown part type ${templatePart.type}`)];
+        };
 
 
 /**

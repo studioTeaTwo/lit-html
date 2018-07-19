@@ -33,6 +33,23 @@ export const svg = (strings: TemplateStringsArray, ...values: any[]) =>
     new SVGTemplateResult(strings, values, 'svg');
 
 /**
+ * Creates Parts when a template is instantiated.
+ */
+export class TemplateProcessor {
+  handleAttributeExpressions(element: Element, name: string, strings: string[]):
+      Part[] {
+    const comitter = new AttributeCommitter(element, name, strings);
+    return comitter.parts;
+  }
+
+  handleTextExpression(node: Node, templateFactory: TemplateFactory) {
+    return new NodePart(node, node.nextSibling!, templateFactory);
+  }
+}
+
+export const defaultTemplateProcessor = new TemplateProcessor();
+
+/**
  * The return type of `html`, which holds a Template and the values from
  * interpolated expressions.
  */
@@ -40,15 +57,15 @@ export class TemplateResult {
   strings: TemplateStringsArray;
   values: any[];
   type: string;
-  partCallback: PartCallback;
+  processor: TemplateProcessor;
 
   constructor(
       strings: TemplateStringsArray, values: any[], type: string,
-      partCallback: PartCallback = defaultPartCallback) {
+      processor: TemplateProcessor = defaultTemplateProcessor) {
     this.strings = strings;
     this.values = values;
     this.type = type;
-    this.partCallback = partCallback;
+    this.processor = processor;
   }
 
   /**
@@ -167,14 +184,13 @@ export function render(
 
   // Repeat render, just call update()
   if (instance !== undefined && instance.template === template &&
-      instance._partCallback === result.partCallback) {
+      instance.processor === result.processor) {
     instance.update(result.values);
     return;
   }
 
   // First render, create a new TemplateInstance and append it
-  instance =
-      new TemplateInstance(template, result.partCallback, templateFactory);
+  instance = new TemplateInstance(template, result.processor, templateFactory);
   (container as TemplateContainer).__templateInstance = instance;
 
   const fragment = instance._clone();
@@ -241,34 +257,12 @@ function findTagClose(str: string): number {
 }
 
 /**
- * A placeholder for a dynamic expression in an HTML template.
- *
- * There are two built-in part types: AttributePart and NodePart. NodeParts
- * always represent a single dynamic expression, while AttributeParts may
- * represent as many expressions are contained in the attribute.
- *
- * A Template's parts are mutable, so parts can be replaced or modified
- * (possibly to implement different template semantics). The contract is that
- * parts can only be replaced, not removed, added or reordered, and parts must
- * always consume the correct number of values in their `update()` method.
- *
- * TODO(justinfagnani): That requirement is a little fragile. A
- * TemplateInstance could instead be more careful about which values it gives
- * to Part.update().
+ * Internal placeholder for a dynamic expression in an HTML template.
  */
-export class TemplatePart {
-  constructor(
-      public type: string, public index: number, public name?: string,
-      public strings?: string[]) {
-  }
-
-  /**
-   * @deprecated Use `name`, which is now also case-preserving.
-   */
-  get rawName(): string|undefined {
-    return this.name;
-  }
-}
+export type TemplatePart = {
+  type: 'node',
+  index: number
+}|{type: 'attribute', index: number, name: string, strings: string[]};
 
 export const isTemplatePartActive = (part: TemplatePart) => part.index !== -1;
 
@@ -284,7 +278,6 @@ export class Template {
     let index = -1;
     let partIndex = 0;
     const nodesToRemove: Node[] = [];
-
 
     const _prepareTemplate = (template: HTMLTemplateElement) => {
       const content = template.content;
@@ -326,8 +319,7 @@ export class Template {
               // expression in this attribute
               const stringForPart = result.strings[partIndex];
               // Find the attribute name
-              const attributeNameInPart =
-                  lastAttributeNameRegex.exec(stringForPart)![1];
+              const name = lastAttributeNameRegex.exec(stringForPart)![1];
 
               // Find the corresponding attribute
               // If the attribute name contains special characters, lower-case
@@ -339,19 +331,12 @@ export class Template {
               // important to _not_ lower-case it, in case the name is
               // case-sensitive, like with XML attributes like "viewBox".
               const attributeLookupName =
-                  /^[a-zA-Z-]*$/.test(attributeNameInPart) ?
-                  attributeNameInPart :
-                  attributeNameInPart.toLowerCase();
+                  /^[a-zA-Z-]*$/.test(name) ? name : name.toLowerCase();
               const attributeValue = node.getAttribute(attributeLookupName)!;
-              const stringsForAttributeValue =
-                  attributeValue.split(markerRegex);
-              this.parts.push(new TemplatePart(
-                  'attribute',
-                  index,
-                  attributeNameInPart,
-                  stringsForAttributeValue));
+              const strings = attributeValue.split(markerRegex);
+              this.parts.push({type: 'attribute', index, name, strings});
               node.removeAttribute(attributeLookupName);
-              partIndex += stringsForAttributeValue.length - 1;
+              partIndex += strings.length - 1;
             }
           }
           if (node.tagName === 'TEMPLATE') {
@@ -377,7 +362,7 @@ export class Template {
                 (strings[i] === '') ? document.createComment('') :
                                       document.createTextNode(strings[i]),
                 node);
-            this.parts.push(new TemplatePart('node', index++));
+            this.parts.push({type: 'node', index: index++});
           }
           parent.insertBefore(
               strings[lastIndex] === '' ?
@@ -406,7 +391,7 @@ export class Template {
           } else {
             index--;
           }
-          this.parts.push(new TemplatePart('node', index++));
+          this.parts.push({type: 'node', index: index++});
           nodesToRemove.push(node);
           // If we don't have a nextSibling add a marker node.
           // We don't have to check if the next node is going to be removed,
@@ -575,13 +560,14 @@ export class AttributePart implements Part {
 }
 
 export class NodePart implements Part {
-  instance: TemplateInstance;
+  templateFactory: TemplateFactory;
   startNode: Node;
   endNode: Node;
   _value: any = undefined;
 
-  constructor(instance: TemplateInstance, startNode: Node, endNode: Node) {
-    this.instance = instance;
+  constructor(
+      startNode: Node, endNode: Node, templateFactory: TemplateFactory) {
+    this.templateFactory = templateFactory;
     this.startNode = startNode;
     this.endNode = endNode;
   }
@@ -632,8 +618,7 @@ export class NodePart implements Part {
         node.nodeType === Node.TEXT_NODE) {
       // If we only have a single text node between the markers, we can just
       // set its value, rather than replacing it.
-      // TODO(justinfagnani): Can we just check if _previousValue is
-      // primitive?
+      // TODO(justinfagnani): Can we just check if _previousValue is primitive?
       node.textContent = value;
     } else {
       this._setNode(document.createTextNode(value));
@@ -642,13 +627,13 @@ export class NodePart implements Part {
   }
 
   private _setTemplateResult(value: TemplateResult): void {
-    const template = this.instance._getTemplate(value);
+    const template = this.templateFactory(value);
     let instance: TemplateInstance;
     if (this._value && this._value.template === template) {
       instance = this._value;
     } else {
-      instance = new TemplateInstance(
-          template, this.instance._partCallback, this.instance._getTemplate);
+      instance =
+          new TemplateInstance(template, value.processor, this.templateFactory);
       this._setNode(instance._clone());
       this._value = instance;
     }
@@ -693,7 +678,7 @@ export class NodePart implements Part {
           itemStart = previousPart.endNode = document.createTextNode('');
           this._insert(itemStart);
         }
-        itemPart = new NodePart(this.instance, itemStart, this.endNode);
+        itemPart = new NodePart(itemStart, this.endNode, this.templateFactory);
         itemParts.push(itemPart);
       }
       itemPart.setValue(item);
@@ -731,39 +716,21 @@ export class NodePart implements Part {
   }
 }
 
-export type PartCallback =
-    (instance: TemplateInstance, templatePart: TemplatePart, node: Node) =>
-        Part[];
-
-export const defaultPartCallback =
-    (instance: TemplateInstance, templatePart: TemplatePart, node: Node):
-        Part[] => {
-          if (templatePart.type === 'attribute') {
-            const comitter = new AttributeCommitter(
-                node as Element, templatePart.name!, templatePart.strings!);
-            return comitter.parts;
-          } else if (templatePart.type === 'node') {
-            return [new NodePart(instance, node, node.nextSibling!)];
-          }
-          throw[new Error(`Unknown part type ${templatePart.type}`)];
-        };
-
-
 /**
  * An instance of a `Template` that can be attached to the DOM and updated
  * with new values.
  */
 export class TemplateInstance {
   _parts: Array<Part|undefined> = [];
-  _partCallback: PartCallback;
+  processor: TemplateProcessor;
   _getTemplate: TemplateFactory;
   template: Template;
 
   constructor(
-      template: Template, partCallback: PartCallback,
+      template: Template, processor: TemplateProcessor,
       getTemplate: TemplateFactory) {
     this.template = template;
-    this._partCallback = partCallback;
+    this.processor = processor;
     this._getTemplate = getTemplate;
   }
 
@@ -817,7 +784,13 @@ export class TemplateInstance {
           this._parts.push(undefined);
           partIndex++;
         } else if (nodeIndex === part.index) {
-          this._parts.push(...this._partCallback(this, part, node));
+          if (part.type === 'node') {
+            this._parts.push(
+                this.processor.handleTextExpression(node, this._getTemplate));
+          } else {
+            this._parts.push(...this.processor.handleAttributeExpressions(
+                node as Element, part.name, part.strings));
+          }
           partIndex++;
         } else {
           nodeIndex++;

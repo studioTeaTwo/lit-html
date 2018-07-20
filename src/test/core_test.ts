@@ -15,7 +15,7 @@
 /// <reference path="../../node_modules/@types/mocha/index.d.ts" />
 /// <reference path="../../node_modules/@types/chai/index.d.ts" />
 
-import {AttributePart, defaultTemplateFactory, directive, html, NodePart, render, svg, TemplateResult, TemplateProcessor} from '../core.js';
+import {AttributePart, defaultTemplateFactory, directive, html, NodePart, render, svg, TemplateProcessor, TemplateResult} from '../core.js';
 
 import {stripExpressionDelimeters} from './test-helpers.js';
 
@@ -1009,11 +1009,13 @@ suite('Core', () => {
 
     setup(() => {
       container = document.createElement('div');
-      startNode = document.createTextNode('');
-      endNode = document.createTextNode('');
+      startNode = document.createComment('');
+      endNode = document.createComment('');
       container.appendChild(startNode);
       container.appendChild(endNode);
-      part = new NodePart(startNode, endNode, defaultTemplateFactory);
+      part = new NodePart(defaultTemplateFactory);
+      part.startNode = startNode;
+      part.endNode = endNode;
     });
 
     suite('setValue', () => {
@@ -1051,6 +1053,8 @@ suite('Core', () => {
 
       test('accepts arrays', () => {
         part.setValue([1, 2, 3]);
+        console.log(Array.from(container.childNodes)
+                        .map((n) => `${n.nodeName}:${n.nodeValue}`));
         assert.equal(stripExpressionDelimeters(container.innerHTML), '123');
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
@@ -1066,9 +1070,11 @@ suite('Core', () => {
       test('accepts nested arrays', () => {
         part.setValue([1, [2], 3]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '123');
+        console.log(Array.from(container.childNodes)
+                        .map((n) => `${n.nodeName}:${n.nodeValue}`));
         assert.deepEqual(
-            ['', '1', '', '2', '', '3', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '1', '', '', '2', '', '', '3', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
       });
@@ -1135,15 +1141,15 @@ suite('Core', () => {
         part.setValue([1, 2, 3]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '123');
         assert.deepEqual(
-            ['', '1', '', '2', '', '3', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '1', '', '2', '', '3', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
 
         part.setValue([]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '');
         assert.deepEqual(
-            ['', ''], Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue), ['', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
       });
@@ -1151,32 +1157,36 @@ suite('Core', () => {
       test('updates when called multiple times with arrays 2', () => {
         part.setValue([1, 2, 3]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '123');
+        // console.log(Array.from(container.childNodes).map((n) =>
+        // `${n.nodeName}:${n.nodeValue}`));
         assert.deepEqual(
-            ['', '1', '', '2', '', '3', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '1', '', '2', '', '3', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
 
         part.setValue([4, 5]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '45');
+        // console.log(Array.from(container.childNodes).map((n) =>
+        // `${n.nodeName}:${n.nodeValue}`));
         assert.deepEqual(
-            ['', '4', '', '5', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '4', '', '5', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
 
         part.setValue([]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '');
         assert.deepEqual(
-            ['', ''], Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue), ['', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
 
         part.setValue([4, 5]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '45');
         assert.deepEqual(
-            ['', '4', '', '5', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '4', '', '5', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
       });
@@ -1185,16 +1195,16 @@ suite('Core', () => {
         part.setValue([1, [2], 3]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '123');
         assert.deepEqual(
-            ['', '1', '', '2', '', '3', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '1', '', '', '2', '', '', '3', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
 
         part.setValue([[1], 2, 3]);
         assert.equal(stripExpressionDelimeters(container.innerHTML), '123');
         assert.deepEqual(
-            ['', '1', '', '2', '', '3', ''],
-            Array.from(container.childNodes).map((n) => n.nodeValue));
+            Array.from(container.childNodes).map((n) => n.nodeValue),
+            ['', '', '', '1', '', '', '2', '', '3', '', '']);
         assert.strictEqual(container.firstChild, startNode);
         assert.strictEqual(container.lastChild, endNode);
       });
@@ -1254,6 +1264,58 @@ suite('Core', () => {
           });
     });
 
+    suite('insertAfterNode', () => {
+      test(
+          'inserts part and sets values between ref node and its next sibling',
+          () => {
+            const testEndNode = document.createComment('');
+            container.appendChild(testEndNode);
+            const testPart = new NodePart(defaultTemplateFactory);
+            testPart.insertAfterNode(endNode);
+            assert.equal(testPart.startNode, endNode);
+            assert.equal(testPart.endNode, testEndNode);
+            const text = document.createTextNode('');
+            testPart.setValue(text);
+            assert.deepEqual(
+                Array.from(container.childNodes),
+                [startNode, endNode, text, testEndNode]);
+          });
+    });
+
+    suite('appendIntoPart', () => {
+      test(
+          'inserts part and sets values between ref node and its next sibling',
+          () => {
+            const testPart = new NodePart(defaultTemplateFactory);
+            testPart.appendIntoPart(part);
+            assert.instanceOf(testPart.startNode, Comment);
+            assert.instanceOf(testPart.endNode, Comment);
+            const text = document.createTextNode('');
+            testPart.setValue(text);
+            assert.deepEqual(Array.from(container.childNodes), [
+              startNode,
+              testPart.startNode,
+              text,
+              testPart.endNode,
+              endNode
+            ]);
+          });
+    });
+
+    suite('insertAfterPart', () => {
+      test('inserts part and sets values after another part', () => {
+        const testPart = new NodePart(defaultTemplateFactory);
+        testPart.insertAfterPart(part);
+        assert.instanceOf(testPart.startNode, Comment);
+        assert.equal(testPart.endNode, endNode);
+        const text = document.createTextNode('');
+        testPart.setValue(text);
+        assert.deepEqual(
+            Array.from(container.childNodes),
+            [startNode, testPart.startNode, text, endNode]);
+      });
+    });
+
     suite('clear', () => {
       test('is a no-op on an already empty range', () => {
         part.clear();
@@ -1279,9 +1341,11 @@ suite('Core', () => {
 
     test('nested TemplateResults use their own processor', () => {
       class TestTemplateProcessor extends TemplateProcessor {
-        handleAttributeExpressions(element: Element, name: string, strings: string[]) {
+        handleAttributeExpressions(
+            element: Element, name: string, strings: string[]) {
           if (name[0] === '&') {
-            return super.handleAttributeExpressions(element, name.slice(1), strings);
+            return super.handleAttributeExpressions(
+                element, name.slice(1), strings);
           }
           return super.handleAttributeExpressions(element, name, strings);
         }
@@ -1289,13 +1353,11 @@ suite('Core', () => {
       const processor = new TestTemplateProcessor();
       const testHtml = (strings: TemplateStringsArray, ...values: any[]) =>
           new TemplateResult(strings, values, 'html', processor);
-      
+
       render(html`${testHtml`<div &foo="${'foo'}"></div>`}`, container);
       assert.equal(
-        stripExpressionDelimeters(container.innerHTML),
-        '<div foo="foo"></div>');
+          stripExpressionDelimeters(container.innerHTML),
+          '<div foo="foo"></div>');
     });
-    
   });
-
 });

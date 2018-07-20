@@ -42,8 +42,8 @@ export class TemplateProcessor {
     return comitter.parts;
   }
 
-  handleTextExpression(node: Node, templateFactory: TemplateFactory) {
-    return new NodePart(node, node.nextSibling!, templateFactory);
+  handleTextExpression(templateFactory: TemplateFactory) {
+    return new NodePart(templateFactory);
   }
 }
 
@@ -200,6 +200,10 @@ export function render(
 
   instance.update(result.values);
 }
+
+// Allows `document.createComment('')` to be renamed for a
+// small manual size-savings.
+const createMarker = () => document.createComment('');
 
 /**
  * An expression marker with embedded unique key to avoid collision with
@@ -359,14 +363,14 @@ export class Template {
           // These nodes are also used as the markers for node parts
           for (let i = 0; i < lastIndex; i++) {
             parent.insertBefore(
-                (strings[i] === '') ? document.createComment('') :
+                (strings[i] === '') ? createMarker() :
                                       document.createTextNode(strings[i]),
                 node);
             this.parts.push({type: 'node', index: index++});
           }
           parent.insertBefore(
               strings[lastIndex] === '' ?
-                  document.createComment('') :
+                  createMarker() :
                   document.createTextNode(strings[lastIndex]),
               node);
           nodesToRemove.push(node);
@@ -387,7 +391,7 @@ export class Template {
           const previousSibling = node.previousSibling;
           if (previousSibling === null || previousSibling !== previousNode ||
               previousSibling.nodeType !== Node.TEXT_NODE) {
-            parent.insertBefore(document.createComment(''), node);
+            parent.insertBefore(createMarker(), node);
           } else {
             index--;
           }
@@ -397,7 +401,7 @@ export class Template {
           // We don't have to check if the next node is going to be removed,
           // because that node will induce a new marker if so.
           if (node.nextSibling === null) {
-            parent.insertBefore(document.createComment(''), node);
+            parent.insertBefore(createMarker(), node);
           } else {
             index--;
           }
@@ -424,7 +428,7 @@ export class Template {
 export const getValue = (part: Part, value: any) => {
   // `null` as the value of a Text node will render the string 'null'
   // so we convert it to undefined
-  if (isDirective(value)) {
+  if (value != null && value.__litDirective === true) {
     value = value(part);
     return noChange;
   }
@@ -440,9 +444,6 @@ export const directive = <P = Part>(f: DirectiveFn<P>): DirectiveFn<P> => {
   f.__litDirective = true;
   return f;
 };
-
-const isDirective = (o: any) =>
-    typeof o === 'function' && o.__litDirective === true;
 
 /**
  * A sentinel value that signals that a value was handled by a directive and
@@ -550,15 +551,45 @@ export class AttributePart implements Part {
 
 export class NodePart implements Part {
   templateFactory: TemplateFactory;
-  startNode: Node;
-  endNode: Node;
+  startNode!: Node;
+  endNode!: Node;
   _value: any = undefined;
 
-  constructor(
-      startNode: Node, endNode: Node, templateFactory: TemplateFactory) {
+  constructor(templateFactory: TemplateFactory) {
     this.templateFactory = templateFactory;
-    this.startNode = startNode;
-    this.endNode = endNode;
+  }
+
+  /**
+   * Inserts this part between `ref` and `ref`'s next sibling. Both `ref` and
+   * its next sibling must be static, unchanging nodes such as those that appear
+   * in a literal section of a template.
+   *
+   * This part must be empty, as its contents are not automatically moved.
+   */
+  insertAfterNode(ref: Node) {
+    this.startNode = ref;
+    this.endNode = ref.nextSibling!;
+  }
+
+  /**
+   * Appends this part into a parent part.
+   *
+   * This part must be empty, as its contents are not automatically moved.
+   */
+  appendIntoPart(part: NodePart) {
+    part._insert(this.startNode = createMarker());
+    part._insert(this.endNode = createMarker());
+  }
+
+  /**
+   * Appends this part after `ref`
+   *
+   * This part must be empty, as its contents are not automatically moved.
+   */
+  insertAfterPart(ref: NodePart) {
+    ref._insert(this.startNode = createMarker());
+    this.endNode = ref.endNode;
+    ref.endNode = this.startNode;
   }
 
   setValue(value: any): void {
@@ -607,7 +638,7 @@ export class NodePart implements Part {
         node.nodeType === Node.TEXT_NODE) {
       // If we only have a single text node between the markers, we can just
       // set its value, rather than replacing it.
-      // TODO(justinfagnani): Can we just check if _previousValue is primitive?
+      // TODO(justinfagnani): Can we just check if _value is primitive?
       node.textContent = value;
     } else {
       this._setNode(document.createTextNode(value));
@@ -636,53 +667,43 @@ export class NodePart implements Part {
     // of TemplateResults that will be commonly returned from expressions like:
     // array.map((i) => html`${i}`), by reusing existing TemplateInstances.
 
-    // If _previousValue is an array, then the previous render was of an
-    // iterable and _previousValue will contain the NodeParts from the previous
-    // render. If _previousValue is not an array, clear this part and make a new
+    // If _value is an array, then the previous render was of an
+    // iterable and _value will contain the NodeParts from the previous
+    // render. If _value is not an array, clear this part and make a new
     // array for NodeParts.
     if (!Array.isArray(this._value)) {
-      this.clear();
       this._value = [];
+      this.clear();
     }
 
     // Lets us keep track of how many items we stamped so we can clear leftover
     // items from a previous render
-    const itemParts = this._value as any[];
+    const itemParts = this._value as NodePart[];
     let partIndex = 0;
+    let itemPart: NodePart|undefined;
 
     for (const item of value) {
       // Try to reuse an existing part
-      let itemPart = itemParts[partIndex];
+      itemPart = itemParts[partIndex];
 
       // If no existing part, create a new one
       if (itemPart === undefined) {
-        // If we're creating the first item part, it's startNode should be the
-        // container's startNode
-        let itemStart = this.startNode;
-
-        // If we're not creating the first part, create a new separator marker
-        // node, and fix up the previous part's endNode to point to it
-        if (partIndex > 0) {
-          const previousPart = itemParts[partIndex - 1];
-          itemStart = previousPart.endNode = document.createTextNode('');
-          this._insert(itemStart);
-        }
-        itemPart = new NodePart(itemStart, this.endNode, this.templateFactory);
+        itemPart = new NodePart(this.templateFactory);
         itemParts.push(itemPart);
+        if (partIndex === 0) {
+          itemPart.appendIntoPart(this);
+        } else {
+          itemPart.insertAfterPart(itemParts[partIndex - 1]);
+        }
       }
       itemPart.setValue(item);
       partIndex++;
     }
 
-    if (partIndex === 0) {
-      this.clear();
-      this._value = undefined;
-    } else if (partIndex < itemParts.length) {
-      const lastPart = itemParts[partIndex - 1];
-      // Truncate the parts array so _previousValue reflects the current state
+    if (partIndex < itemParts.length) {
+      // Truncate the parts array so _value reflects the current state
       itemParts.length = partIndex;
-      this.clear(lastPart.endNode.previousSibling!);
-      lastPart.endNode = this.endNode;
+      this.clear(itemPart && itemPart!.endNode);
     }
   }
 
@@ -774,8 +795,9 @@ export class TemplateInstance {
           partIndex++;
         } else if (nodeIndex === part.index) {
           if (part.type === 'node') {
-            this._parts.push(
-                this.processor.handleTextExpression(node, this._getTemplate));
+            const part = this.processor.handleTextExpression(this._getTemplate);
+            part.insertAfterNode(node);
+            this._parts.push(part);
           } else {
             this._parts.push(...this.processor.handleAttributeExpressions(
                 node as Element, part.name, part.strings));

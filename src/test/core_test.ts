@@ -15,7 +15,7 @@
 /// <reference path="../../node_modules/@types/mocha/index.d.ts" />
 /// <reference path="../../node_modules/@types/chai/index.d.ts" />
 
-import {AttributePart, defaultTemplateFactory, directive, html, NodePart, render, svg, TemplateResult, TemplateProcessor} from '../core.js';
+import {AttributePart, defaultTemplateFactory, directive, html, NodePart, render, svg, TemplateProcessor, TemplateResult} from '../core.js';
 
 import {stripExpressionDelimeters} from './test-helpers.js';
 
@@ -1279,9 +1279,11 @@ suite('Core', () => {
 
     test('nested TemplateResults use their own processor', () => {
       class TestTemplateProcessor extends TemplateProcessor {
-        handleAttributeExpressions(element: Element, name: string, strings: string[]) {
+        handleAttributeExpressions(
+            element: Element, name: string, strings: string[]) {
           if (name[0] === '&') {
-            return super.handleAttributeExpressions(element, name.slice(1), strings);
+            return super.handleAttributeExpressions(
+                element, name.slice(1), strings);
           }
           return super.handleAttributeExpressions(element, name, strings);
         }
@@ -1289,13 +1291,11 @@ suite('Core', () => {
       const processor = new TestTemplateProcessor();
       const testHtml = (strings: TemplateStringsArray, ...values: any[]) =>
           new TemplateResult(strings, values, 'html', processor);
-      
+
       render(html`${testHtml`<div &foo="${'foo'}"></div>`}`, container);
       assert.equal(
-        stripExpressionDelimeters(container.innerHTML),
-        '<div foo="foo"></div>');
+          stripExpressionDelimeters(container.innerHTML),
+          '<div foo="foo"></div>');
     });
-    
   });
-
 });

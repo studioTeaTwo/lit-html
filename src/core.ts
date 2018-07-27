@@ -36,12 +36,27 @@ export const svg = (strings: TemplateStringsArray, ...values: any[]) =>
  * Creates Parts when a template is instantiated.
  */
 export class TemplateProcessor {
+  /**
+   * Create parts for an attribute-position binding, given the event, attribute
+   * name, and string literals.
+   *
+   * @param element The element containing the binding
+   * @param name  The attribute name
+   * @param strings The string literals. There are always at least two strings,
+   *   event for fully-controlled bindings with a single expression.
+   */
   handleAttributeExpressions(element: Element, name: string, strings: string[]):
       Part[] {
     const comitter = new AttributeCommitter(element, name, strings);
     return comitter.parts;
   }
 
+  /**
+   * Create parts for a text-position binding.
+   *
+   * @param node The previous sibling of the binding
+   * @param templateFactory
+   */
   handleTextExpression(node: Node, templateFactory: TemplateFactory) {
     return new NodePart(node, node.nextSibling!, templateFactory);
   }
@@ -632,6 +647,9 @@ export class NodePart implements Part {
     if (this._value && this._value.template === template) {
       instance = this._value;
     } else {
+      // Make sure we propagate the template processor from the TemplateResult
+      // so that we use it's syntax extension, etc. The template factory comes
+      // from the render function so that it can control caching.
       instance =
           new TemplateInstance(template, value.processor, this.templateFactory);
       this._setNode(instance._clone());

@@ -471,7 +471,8 @@ export interface Part {
 }
 
 export interface SinglePart extends Part {
-  setValue(value: any): void;
+  // NOTICE: modified for ivy
+  setValue(value: any, childUpdate?: boolean): void;
 }
 
 export interface MultiPart extends Part {
@@ -570,7 +571,8 @@ export class NodePart implements SinglePart {
     this._previousValue = undefined;
   }
 
-  setValue(value: any): void {
+  // NOTICE: modified for ivy
+  setValue(value: any, childUpdate: boolean = false): void {
     value = getValue(this, value);
     if (value === noChange) {
       return;
@@ -583,7 +585,8 @@ export class NodePart implements SinglePart {
       }
       this._setText(value);
     } else if (value instanceof TemplateResult) {
-      this._setTemplateResult(value);
+      // NOTICE: modified for ivy
+      this._setTemplateResult(value, childUpdate);
     } else if (value instanceof Node) {
       this._setNode(value);
     } else if (Array.isArray(value) || value[Symbol.iterator]) {
@@ -625,7 +628,8 @@ export class NodePart implements SinglePart {
     this._previousValue = value;
   }
 
-  private _setTemplateResult(value: TemplateResult): void {
+  // NOTICE: modified for ivy
+  private _setTemplateResult(value: TemplateResult, childUpdate: boolean = false): void {
     const template = this.instance._getTemplate(value);
     let instance: TemplateInstance;
     if (this._previousValue && this._previousValue.template === template) {
@@ -633,10 +637,17 @@ export class NodePart implements SinglePart {
     } else {
       instance = new TemplateInstance(
           template, this.instance._partCallback, this.instance._getTemplate);
-      this._setNode(instance._clone());
+      // NOTICE: modified for ivy
+      if (childUpdate) {
+        this._setNode(instance._clone());
+      }
       this._previousValue = instance;
     }
-    instance.update(value.values);
+
+    // NOTICE: modified for ivy
+    if (childUpdate) {
+      instance.update(value.values, childUpdate);
+    }
   }
 
   private _setIterable(value: any): void {
@@ -748,13 +759,15 @@ export class TemplateInstance {
     this._getTemplate = getTemplate;
   }
 
-  update(values: any[]) {
+  // NOTICE: modified for ivy
+  update(values: any[], childUpdate: boolean = false) {
     let valueIndex = 0;
     for (const part of this._parts) {
       if (!part) {
         valueIndex++;
       } else if (part.size === undefined) {
-        (part as SinglePart).setValue(values[valueIndex]);
+        // NOTICE: modified for ivy
+        (part as SinglePart).setValue(values[valueIndex], childUpdate);
         valueIndex++;
       } else {
         (part as MultiPart).setValue(values, valueIndex);
